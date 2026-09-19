@@ -38,7 +38,11 @@ class SalaryCalculator
       raise ArgumentError, "#{name} must be non-negative" if number.negative?
 
       number
-    rescue TypeError, ArgumentError
+    rescue TypeError
+      raise ArgumentError, "#{name} must be a number"
+    rescue ArgumentError => error
+      raise error if error.message == "#{name} must be non-negative"
+
       raise ArgumentError, "#{name} must be a number"
     end
   end
