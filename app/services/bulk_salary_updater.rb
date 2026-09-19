@@ -1,20 +1,24 @@
 # frozen_string_literal: true
 
+require_relative '../errors/payroll_errors'
+
 class BulkSalaryUpdater
   DEFAULT_BATCH_SIZE = 1_000
 
   def initialize(scope = Employee.all, batch_size: DEFAULT_BATCH_SIZE)
     @scope = scope
-    @batch_size = batch_size
-    raise ArgumentError, 'batch size must be positive' unless batch_size.to_i.positive?
+    @batch_size = Integer(batch_size)
+    raise Payroll::InvalidPayrollParameterError, 'batch size must be positive' unless @batch_size.positive?
+  rescue TypeError, ArgumentError => error
+    raise error if error.is_a?(Payroll::InvalidPayrollParameterError)
+
+    raise Payroll::InvalidPayrollParameterError, 'batch size must be numeric'
   end
 
-  # Performs one database UPDATE for an ActiveRecord relation. This avoids
-  # instantiating every employee and avoids an N+1 callback/update loop.
   def increase_by_department(department:, percentage:)
     validate_department!(department)
     percentage = validate_percentage!(percentage)
-    relation = filtered_scope(department)
+    relation = @scope.where(department: department)
     multiplier = 1 + (percentage / 100.0)
 
     updated_count = transaction do
@@ -24,9 +28,8 @@ class BulkSalaryUpdater
     { updated_count: updated_count, percentage: percentage }
   end
 
-  # Use this variant when each employee must be processed by an application
-  # service or background job. It keeps memory bounded and preserves ordering.
   def enqueue_payroll_jobs(job_class: ProcessPayrollJob)
+    raise Payroll::InvalidPayrollParameterError, 'job class is required' if job_class.nil?
     return 0 unless @scope.respond_to?(:find_in_batches)
 
     processed = 0
@@ -41,10 +44,6 @@ class BulkSalaryUpdater
 
   private
 
-  def filtered_scope(department)
-    @scope.where(department: department)
-  end
-
   def transaction(&block)
     if @scope.respond_to?(:klass) && @scope.klass.respond_to?(:transaction)
       @scope.klass.transaction(&block)
@@ -54,17 +53,19 @@ class BulkSalaryUpdater
   end
 
   def validate_department!(department)
-    raise ArgumentError, 'department is required' if department.to_s.strip.empty?
+    raise Payroll::InvalidPayrollParameterError, 'department is required' if department.to_s.strip.empty?
   end
 
   def validate_percentage!(percentage)
+    raise Payroll::InvalidPayrollParameterError, 'percentage is required' if percentage.nil?
+
     value = Float(percentage)
-    raise ArgumentError, 'percentage must be non-negative' if value.negative?
+    raise Payroll::InvalidPayrollParameterError, 'percentage must be non-negative' if value.negative?
 
     value
   rescue TypeError, ArgumentError => error
-    raise error if error.message == 'percentage must be non-negative'
+    raise error if error.is_a?(Payroll::InvalidPayrollParameterError)
 
-    raise ArgumentError, 'percentage must be numeric'
+    raise Payroll::InvalidPayrollParameterError, 'percentage must be numeric'
   end
 end

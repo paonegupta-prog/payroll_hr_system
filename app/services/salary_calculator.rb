@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative '../errors/payroll_errors'
+
 class SalaryCalculator
   MONTHS_IN_YEAR = 12.0
 
@@ -30,20 +32,20 @@ class SalaryCalculator
     private
 
     def validate_salary!(value)
-      validate_non_negative!(value, 'salary')
+      validate_non_negative!(value, 'salary', Payroll::InvalidSalaryError)
     end
 
-    def validate_non_negative!(value, name)
+    def validate_non_negative!(value, name, error_class = Payroll::InvalidPayrollParameterError)
+      raise error_class, "#{name} is required" if value.nil?
+
       number = Float(value)
-      raise ArgumentError, "#{name} must be non-negative" if number.negative?
+      raise error_class, "#{name} must be non-negative" if number.negative?
 
       number
-    rescue TypeError
-      raise ArgumentError, "#{name} must be a number"
-    rescue ArgumentError => error
-      raise error if error.message == "#{name} must be non-negative"
+    rescue TypeError, ArgumentError => error
+      raise error if error.is_a?(Payroll::DomainError)
 
-      raise ArgumentError, "#{name} must be a number"
+      raise error_class, "#{name} must be numeric"
     end
   end
 end
